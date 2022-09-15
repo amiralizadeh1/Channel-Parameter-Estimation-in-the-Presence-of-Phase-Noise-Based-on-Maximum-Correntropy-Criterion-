@@ -1,0 +1,249 @@
+#Author: Amir Alizadeh. Please contact me and let me know of your comments on the code at a.alizadeh@mail.um.ac.ir
+import numpy as np
+np.random.seed(1)
+import matplotlib.pyplot as plt
+import scipy
+import winsound
+LB = 16000
+snrdb = 60
+num_taps = 5
+learning_rate = 0.01
+kappa = 8 #smaller kappa indicated more severe noise
+sigma2 = 2
+coeff = np.concatenate(([ (1+1j)], np.zeros(1), [ 1+1j], np.zeros(1), [1]))/np.sqrt(5) #make it random later #make it case study later
+coeff_new = np.concatenate(([ (1-1j)], np.zeros(1), [ 1-1j], np.zeros(1), [1]))/np.sqrt(6) 
+
+
+## adaptive aglorithm with Second Order Statistics
+## inputs:: QAM: input training data, R:target training data, num_taps: length of filter to be estimated, learning_rate: stepsiz
+## outputs:: error history of the learning algorithm, weights: estimated filter weights, D: MSD history of the learning algorith
+def LMS_MMSE(QAM, R, R_new, num_taps, LR): 
+    num_points = len(QAM)
+    W = np.zeros(num_taps)
+    E = np.zeros(num_points)
+    D = []
+    for n in range(num_taps, num_points):
+        
+        XX = QAM[n-num_taps:n]
+        X = np.flip(XX)
+        
+        
+        if n<int(len(QAM)/2): E[n]= R[n-1] - np.dot(X, W)
+        else: E[n]= R_new[n-1] - np.dot(X, W)
+        
+        
+        W = W + (LR*X.conj()*E[n])
+        if  n<int(len(QAM)/2): D.append(10*np.log(np.mean(abs(coeff - W)**2)))
+        else:  D.append(10*np.log(np.mean(abs(coeff_new - W)**2)))
+    return E,W,D
+
+## adaptive aglorithm with Higher Order Statistics
+## inputs:: QAM: input training data, R:target training data, num_taps: length of filter to be estimated, learning_rate: stepsiz
+##          SIGMA2: kernel bandwidth
+## outputs:: error history of the learning algorithm, weights: estimated filter weights, D: MSD history of the learning algorith
+
+def LMS_MCC(QAM, R, R_new, num_taps, LR,SIGMA2):  #adaptive algorithm with Higher Order Statistics
+    num_points = len(QAM)
+    W = np.zeros(num_taps)
+    E = np.zeros(num_points)
+    D = []
+    for n in range(num_taps, num_points):
+        
+        XX = QAM[n-num_taps:n]
+        X = np.flip(XX)
+        
+        if  n<int(len(QAM)/2): E[n]= R[n-1] - np.dot(X, W)
+        else: E[n]= R_new[n-1] - np.dot(X, W)
+        
+        first = LR/SIGMA2
+        second = np.exp(-(E[n] * np.conj(E[n]))/(2*SIGMA2))
+        
+        W = W + first*second*E[n]*X.conj()
+        #weights = weights +( (first*second*E[n]*x.conj()) /sum(abs(x) ** 2))
+        if  n<int(len(QAM)/2): D.append(10*np.log(np.mean(abs(coeff - W)**2)))
+        else:  D.append(10*np.log(np.mean(abs(coeff_new - W)**2)))
+    return E,W,D
+
+
+def LMS_mixed(QAM, R, R_new, num_taps, LR,SIGMA2):  #adaptive algorithm with Higher Order Statistics
+    num_points = len(QAM)
+    W = np.zeros(num_taps)
+    E = np.zeros(num_points)
+    D = []
+    for n in range(num_taps, num_points):
+        
+        XX = QAM[n-num_taps:n]
+        X = np.flip(XX)       
+        if  n<int(len(QAM)/2): E[n]= R[n-1] - np.dot(X, W)
+        else: E[n]= R_new[n-1] - np.dot(X, W)
+        
+        if  n<int(len(QAM)/2): 
+            if 10*np.log(np.mean(abs(coeff - W)**2))>-40: 
+                W = W + (LR*X.conj()*E[n])
+#                print(10*np.log(np.mean(abs(coeff - W)**2)))
+            else:
+                first = learning_rate/SIGMA2
+                second = np.exp(-(E[n] * np.conj(E[n]))/(2*SIGMA2))
+                W = W + first*second*E[n]*X.conj()  
+        else:
+            if 10*np.log(np.mean(abs(coeff_new - W)**2))>-40:
+                W = W + (LR*X.conj()*E[n])
+#                print(10*np.log(np.mean(abs(coeff_new - W)**2)))
+            else:
+                first = learning_rate/SIGMA2
+                second = np.exp(-(E[n] * np.conj(E[n]))/(2*SIGMA2))
+                W = W + first*second*E[n]*X.conj()
+        #weights = weights +( (first*second*E[n]*x.conj()) /sum(abs(x) ** 2))
+        if  n<int(len(QAM)/2): D.append(10*np.log(np.mean(abs(coeff - W)**2)))
+        else:  D.append(10*np.log(np.mean(abs(coeff_new - W)**2)))
+    return E,W,D         
+
+
+
+def LMS_mixed1(QAM, R, R_new, num_taps, LR,SIGMA2):  #adaptive algorithm with Higher Order Statistics
+    num_points = len(QAM)
+    W = np.zeros(num_taps)
+    E = np.zeros(num_points)
+    D = []
+    for n in range(num_taps, num_points):
+        
+        XX = QAM[n-num_taps:n]
+        X = np.flip(XX)       
+        if  n<int(len(QAM)/2): E[n]= R[n-1] - np.dot(X, W)
+        else: E[n]= R_new[n-1] - np.dot(X, W)
+        
+        if  n<int(len(QAM)/2): 
+            if n<100: 
+                W = W + (LR*X.conj()*E[n])
+            else:
+                first = learning_rate/SIGMA2
+                second = np.exp(-(E[n] * np.conj(E[n]))/(2*SIGMA2))
+                W = W + first*second*E[n]*X.conj()  
+        else:
+            if n<int(len(QAM)/2)+100:
+                W = W + (LR*X.conj()*E[n])
+            else:
+                first = learning_rate/SIGMA2
+                second = np.exp(-(E[n] * np.conj(E[n]))/(2*SIGMA2))
+                W = W + first*second*E[n]*X.conj()
+        if  n<int(len(QAM)/2): D.append(10*np.log(np.mean(abs(coeff - W)**2)))
+        else:  D.append(10*np.log(np.mean(abs(coeff_new - W)**2)))
+    return E,W,D 
+
+
+##  moving average function, used for averaging MSD
+def moving_average(DATA, WINDOW):
+    return np.convolve(DATA, np.ones(WINDOW), 'valid') / WINDOW
+
+## Serial to parralel function to map bits into 4-bit groups
+def SP(bits):
+    LS = (LB/4)
+    return bits.reshape(int(LS), 4)
+
+## mapping table of 16-QAM modulation
+mapping_table = {
+    (0,0,0,0) : -3-3j,
+    (0,0,0,1) : -3-1j,
+    (0,0,1,0) : -3+3j,
+    (0,0,1,1) : -3+1j,
+    (0,1,0,0) : -1-3j,
+    (0,1,0,1) : -1-1j,
+    (0,1,1,0) : -1+3j,
+    (0,1,1,1) : -1+1j,
+    (1,0,0,0) :  3-3j,
+    (1,0,0,1) :  3-1j,
+    (1,0,1,0) :  3+3j,
+    (1,0,1,1) :  3+1j,
+    (1,1,0,0) :  1-3j,
+    (1,1,0,1) :  1-1j,
+    (1,1,1,0) :  1+3j,
+    (1,1,1,1) :  1+1j
+}
+
+## maps 4-bit groups into QAM symbols
+def Mapping(bits):
+    return np.array([mapping_table[tuple(b)] for b in bits])
+
+def noise_adder(Convolved,SNRdb,Kappa):
+    Signal_power_rx = np.mean(abs(Convolved)**2)
+    Var_noise = Signal_power_rx * 10**(-SNRdb/10)  # calculate noise power based on signal power and SNR
+    # Generate complex noise with given variance
+    N = np.sqrt(Var_noise/2) * (np.random.randn(*Convolved.shape)+1j*np.random.randn(*Convolved.shape))
+    PHI = np.random.vonmises(0, kappa, len(Convolved))
+    RR = Convolved + N
+    R = np.multiply(RR,np.exp(PHI * 1j))
+    return R
+
+
+
+for b3 in [0, 1]:
+    for b2 in [0, 1]:
+        for b1 in [0, 1]:
+            for b0 in [0, 1]:
+                B = (b3, b2, b1, b0)
+                Q = mapping_table[B]
+                plt.plot(Q.real, Q.imag, 'bo') 
+                plt.text(Q.real, Q.imag+0.2, "".join(str(x) for x in B), ha='center')
+
+demapping_table = {v : k for k, v in mapping_table.items()}
+bits = np.random.binomial(n=1, p=0.5, size= LB)
+
+
+bits_sp = SP(bits)
+qam = Mapping(bits_sp)
+
+
+
+convolved = np.convolve(qam, coeff)
+convolved_new = np.convolve(qam, coeff_new)
+
+
+r = noise_adder(convolved,snrdb,kappa)
+r_new = noise_adder(convolved_new,snrdb,kappa)
+###############################################################################################
+e_lms,w_lms,deviation_lms = LMS_MMSE(qam, r, r_new, num_taps, learning_rate)
+e_mcc,w_mcc,deviation_mcc = LMS_MCC(qam, r, r_new, num_taps, learning_rate,sigma2)
+e_mixed,w_mixed,deviation_mixed = LMS_mixed1(qam, r, r_new, num_taps, learning_rate,sigma2)
+
+
+plt.figure(figsize=(14,6))
+plt.semilogy()
+#plt.subplot(1,1,1)
+plt.plot(np.abs(e_lms),'b',np.abs(e_mcc),'r',np.abs(e_mixed),'g')
+plt.legend(["e_lms","e_mcc","e_mixed"],loc = "upper right")
+#   plt.xlim([3500,4000])
+plt.show()
+
+
+
+print(f'weights obtained by lms_mmse algorithm:')
+print(w_lms)
+print(f'weights obtained by lms_mcc algorithm:')
+print(w_mcc)
+print(f'weights obtained by lms_mixed algorithm:')
+print(w_mixed)
+
+plt.figure(figsize=(10,6))
+#plt.semilogy()
+plt.plot(deviation_lms,'b',deviation_mcc,'r--',deviation_mixed,'g:')
+plt.legend(["MSE for mse-lms","MSE for mcc-lms","MSE for mixed-lms"],loc = "upper right")
+#plt.xlim([1900,2300])
+plt.xlabel("Iterations")
+plt.ylabel("MSE(dB)")
+plt.savefig('mse for mixed-LMS.jpg',dpi=300,bbox_inches='tight')
+plt.show()
+
+#10*np.log(deviation_mcc[int(LB/8):-1])
+
+print(f'MCC_mean at kappa={kappa} and snr={snrdb} and KBW={sigma2} is {np.mean(deviation_mcc[int(LB/8+LB/16):-1])}')
+print(f'MCC_mean at kappa={kappa} and snr={snrdb} and is {np.mean(deviation_lms[int(LB/8+LB/16):-1])}')
+print(f'MCC_mean at kappa={kappa} and snr={snrdb} and KBW={sigma2} is {np.mean(deviation_mixed[int(LB/8+LB/16):-1])}')
+
+
+
+deviation_lms_avg = moving_average(deviation_lms,500)
+deviation_mcc_avg = moving_average(deviation_mcc,500)
+
+
+
+winsound.Beep(1000,300)
