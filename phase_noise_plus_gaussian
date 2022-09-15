@@ -1,0 +1,59 @@
+#Author: Amir Alizadeh. Please contact me and let me know of your comments on the code at a.alizadeh@mail.um.ac.ir
+
+import numpy as np
+#np.random.seed(12) #experiment with different seeds 
+np.random.seed(7)
+from matplotlib import pyplot as plt
+from numpy.random import normal
+from numpy import hstack
+from numpy import asarray
+from numpy import exp
+from sklearn.neighbors import KernelDensity
+from numpy import trapz
+import scipy.stats
+
+Var_noise = 0.1 #Variance of Gaussian Noise
+kappa=8 #kappa parameter of Von Mises noise. the smaller, the more severe
+n_points = 10000 #number of realizations for Gaussian and Von Mises Random Variables
+NF =10*(1/n_points) #length of bins
+
+phi = np.random.vonmises(0, kappa, n_points) #Generate Von Mises -distributed points
+n = np.sqrt(Var_noise) * np.random.randn(n_points) #Generate Gaussian-distributed points
+z = n + phi #add them up and define total noise
+
+silverman = 0.9*min(np.std(n),scipy.stats.iqr(n)/1.34)*(n_points**-0.2) #Define Silverman's proposed Kernel Bandwidth (KBW)
+
+model_z = KernelDensity(bandwidth=1.6*silverman, kernel='gaussian') #Define Kernel Density Estimator (KDE) model for total noise
+model_n = KernelDensity(bandwidth=1.6*silverman, kernel='gaussian') #Define Kernel Density Estimator (KDE) model for gaussian noise
+z = z.reshape(n_points, 1) #reshape
+n = n.reshape(n_points, 1) #reshape
+model_z.fit(z) #fit overal noise data to the corresponding model
+model_n.fit(n) #fit gaussian noise data to the corresponding model
+
+values = asarray([NF*value for value in range(-int(n_points/2),int(n_points/2))]) #define horizontal axis for PDF illustration
+values = values.reshape((len(values), 1)) #reshape
+
+
+probabilities_z = model_z.score_samples(values) #fit horizontal axis to the model 
+probabilities_n = model_n.score_samples(values) #fit horizontal axis to the model 
+probabilities_z = exp(probabilities_z)
+probabilities_n = exp(probabilities_n)
+
+plt.plot(values[:], probabilities_z, 'r') #plot overal distribution's KDE 
+
+plt.plot(values[:], probabilities_n,'b:') #plot Gaussian distribution's KDE
+#plt.plot(x_axis, norm.pdf(values, 0, 0.1))
+plt.legend(['v + phi','v'],loc='upper right') 
+plt.xlim([-2.5,2.5])
+#plt.xticks(z[::500])
+plt.savefig('kde of von-mises.jpg',dpi=300,bbox_inches='tight') 
+plt.show()
+
+
+
+area_z=trapz(probabilities_z,dx=NF) #calculate area under PDF to validate if it is unity
+area_n=trapz(probabilities_n,dx=NF) #calculate area under PDF to validate if it is unity
+print(f'area_z is {area_z}')
+print(f'area_n is {area_n}')
+
+print(f'silvermans KBW is {silverman}')
