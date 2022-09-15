@@ -1,0 +1,192 @@
+#Author: Amir Alizadeh. Please contact me and let me know of your comments on the code at a.alizadeh@mail.um.ac.ir
+import numpy as np
+np.random.seed(3)
+import matplotlib.pyplot as plt
+import scipy
+import winsound
+LB = 16000
+snrdb = 10
+num_taps = 5
+learning_rate = 0.01
+kappa = 8 #smaller kappa indicated more severe noise
+#sigma2 = it is addaptive
+coeff = np.concatenate(([ (1+1j)], np.zeros(1), [ 1+1j], np.zeros(1), [1]))/np.sqrt(5) 
+#makeit random later#make it casestudy later
+coeff_new = np.concatenate(([ (1-1j)], np.zeros(1), [ 1-1j], np.zeros(1), [1]))/np.sqrt(6) 
+
+
+## adaptive aglorithm with Second Order Statistics
+## inputs:: QAM: input training data, R:target training data, num_taps: length of filter to be estimated, learning_rate: stepsiz
+## outputs:: error history of the learning algorithm, weights: estimated filter weights, D: MSD history of the learning algorith
+def LMS_MMSE(QAM, R, R_new, num_taps, LR): 
+    num_points = len(QAM)
+    W = np.zeros(num_taps)
+    E = np.zeros(num_points)
+    D = []
+    for n in range(num_taps, num_points):
+        
+        XX = QAM[n-num_taps:n]
+        X = np.flip(XX)
+        
+        
+        if n<2000: E[n]= R[n-1] - np.dot(X, W)
+        else: E[n]= R_new[n-1] - np.dot(X, W)
+        
+        
+        W = W + (LR*X.conj()*E[n])
+        if n<2000: D.append(np.mean(abs(coeff - W)**2))
+        else:  D.append(np.mean(abs(coeff_new - W)**2))
+    return E,W,D
+
+## adaptive aglorithm with Higher Order Statistics
+## inputs:: QAM: input training data, R:target training data, num_taps: length of filter to be estimated, learning_rate: stepsiz
+##          SIGMA2: kernel bandwidth
+## outputs:: error history of the learning algorithm, weights: estimated filter weights, D: MSD history of the learning algorith
+
+def LMS_MCC(QAM, R, R_new, num_taps, learning_rate,SIGMA2):  #adaptive algorithm with Higher Order Statistics
+    num_points = len(QAM)
+    W = np.zeros(num_taps)
+    E = np.zeros(num_points)
+    D = []
+    for n in range(num_taps, num_points):
+        
+        XX = QAM[n-num_taps:n]
+        X = np.flip(XX)
+        
+        if n<2000: E[n]= R[n-1] - np.dot(X, W)
+        else: E[n]= R_new[n-1] - np.dot(X, W)
+        
+        first = learning_rate/SIGMA2
+        second = np.exp(-(E[n] * np.conj(E[n]))/(2*SIGMA2))
+        
+        W = W + first*second*E[n]*X.conj()
+        #weights = weights +( (first*second*E[n]*x.conj()) /sum(abs(x) ** 2))
+        if n<2000: D.append(np.mean(abs(coeff - W)**2))
+        else:  D.append(np.mean(abs(coeff_new - W)**2))
+    return E,W,D
+
+def LMS_MCC_ada(QAM, R, R_new, num_taps, learning_rate,SIGMA2_0):  #adaptive algorithm with Higher Order Statistics
+    num_points = len(QAM)
+    W = np.zeros(num_taps)
+    E = np.zeros(num_points)
+    D = []
+    for n in range(num_taps, num_points):
+        
+        xx = QAM[n-num_taps:n]
+        x = np.flip(xx)
+        
+        if n<2000: E[n]= R[n-1] - np.dot(x, W)
+        else: E[n]= R_new[n-1] - np.dot(x, W)
+        
+        first = learning_rate/SIGMA2
+        second = np.exp(-(E[n] * np.conj(E[n]))/(2*SIGMA2))
+        
+        W = W + first*second*E[n]*x.conj()
+        #weights = weights +( (first*second*E[n]*x.conj()) /sum(abs(x) ** 2))
+        if n<2000: D.append(sum(abs(coeff - W)))
+        else:  D.append(sum(abs(coeff_new - W)))
+    return E,W,D
+
+##  moving average function, used for averaging MSD
+def moving_average(DATA, WINDOW):
+    return np.convolve(DATA, np.ones(WINDOW), 'valid') / WINDOW
+
+## Serial to parralel function to map bits into 4-bit groups
+def SP(bits):
+    LS = (LB/4)
+    return bits.reshape(int(LS), 4)
+
+## mapping table of 16-QAM modulation
+mapping_table = {
+    (0,0,0,0) : -3-3j,
+    (0,0,0,1) : -3-1j,
+    (0,0,1,0) : -3+3j,
+    (0,0,1,1) : -3+1j,
+    (0,1,0,0) : -1-3j,
+    (0,1,0,1) : -1-1j,
+    (0,1,1,0) : -1+3j,
+    (0,1,1,1) : -1+1j,
+    (1,0,0,0) :  3-3j,
+    (1,0,0,1) :  3-1j,
+    (1,0,1,0) :  3+3j,
+    (1,0,1,1) :  3+1j,
+    (1,1,0,0) :  1-3j,
+    (1,1,0,1) :  1-1j,
+    (1,1,1,0) :  1+3j,
+    (1,1,1,1) :  1+1j
+}
+
+## maps 4-bit groups into QAM symbols
+def Mapping(bits):
+    return np.array([mapping_table[tuple(b)] for b in bits])
+
+def noise_adder(Convolved,SNRdb,Kappa):
+    Signal_power_rx = np.mean(abs(Convolved)**2)
+    Var_noise = Signal_power_rx * 10**(-SNRdb/10)  # calculate noise power based on signal power and SNR
+    # Generate complex noise with given variance
+    N = np.sqrt(Var_noise/2) * (np.random.randn(*Convolved.shape)+1j*np.random.randn(*Convolved.shape))
+    PHI = np.random.vonmises(0, kappa, len(Convolved))
+    RR = Convolved + N
+    R = np.multiply(RR,np.exp(PHI * 1j))
+    return R
+
+
+
+for b3 in [0, 1]:
+    for b2 in [0, 1]:
+        for b1 in [0, 1]:
+            for b0 in [0, 1]:
+                B = (b3, b2, b1, b0)
+                Q = mapping_table[B]
+                plt.plot(Q.real, Q.imag, 'bo') 
+                plt.text(Q.real, Q.imag+0.2, "".join(str(x) for x in B), ha='center')
+
+demapping_table = {v : k for k, v in mapping_table.items()}
+bits = np.random.binomial(n=1, p=0.5, size= LB)
+
+
+bits_sp = SP(bits)
+qam = Mapping(bits_sp)
+
+
+
+convolved = np.convolve(qam, coeff)
+convolved_new = np.convolve(qam, coeff_new)
+
+
+#channel_energy = sum(abs(coeff)**2)
+#signal_power_tx = np.mean(abs(qam)**2)
+#signal_power_rx = np.mean(abs(convolved)**2)  
+
+    
+#print(f'TX signal power is {signal_power_tx}, RX signal power is {signal_power_rx}, noise power is {var_noise}')
+#print(f'channel energy is {channel_energy}')
+    
+# Generate complex noise with given variance
+#n = np.sqrt(var_noise/2) * (np.random.randn(*convolved.shape)+1j*np.random.randn(*convolved.shape))
+#phi = np.random.vonmises(0, kappa, len(convolved))
+
+
+r = noise_adder(convolved,snrdb,kappa)
+r_new = noise_adder(convolved_new,snrdb,kappa)
+###############################################################################################
+plt.figure(figsize=(10,6))
+_,_,deviation_lms = LMS_MMSE(qam, r, r_new, num_taps, learning_rate)
+for KBW in [1,4,10]:
+    _,_,deviation_mcc = LMS_MCC(qam, r, r_new, num_taps, learning_rate,KBW)
+    if KBW==1: plt.plot(10*np.log10(deviation_mcc), label='MCC KBW=1',color='midnightblue',linestyle='solid',linewidth=3)
+    if KBW==4: plt.plot(10*np.log10(deviation_mcc),label='MCC KBW=4',color='blue',linestyle='dashdot',markersize=3,linewidth=2)
+#    if KBW==7: plt.plot(10*np.log10(deviation_mcc),label='line3',color='lightsteelblue',linestyle='solid',marker='*',markersize=3,linewidth=0.5)
+    if KBW==10: plt.plot(10*np.log10(deviation_mcc),label='MCC KBW=10',color='cornflowerblue',linestyle='dashed',linewidth=1) 
+
+    print(KBW)
+plt.xlabel("Iterations")
+plt.ylabel("MSE(dB)")
+plt.ylim([-37,-5])
+plt.xlim([1500,4000])
+plt.plot(10*np.log10(deviation_lms),color='black',label='MSE',linestyle='solid',marker='o',markersize=4,linewidth=3)
+plt.legend(fontsize=11)
+#plt.legend()
+plt.savefig(f'KBW_impact_snr_{snrdb}_kappa_{kappa}.jpg',dpi=300,bbox_inches='tight')
+plt.show()
+winsound.Beep(1000,300)
